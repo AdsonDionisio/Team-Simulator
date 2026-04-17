@@ -1,0 +1,6 @@
+{
+  "name": "DevSim: AI Team Simulator",
+  "description": "A development team simulator where AI manages a Kanban board, generates backlogs, and simulates sprint progress for آموزشی purposes.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
