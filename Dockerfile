@@ -10,29 +10,24 @@ RUN npm install
 # Copiar código fonte
 COPY . .
 
-# Variável de ambiente durante a construção (Vite precisa disso para o 'define')
-# Se for usar build-args para passar a chave:
-# ARG GEMINI_API_KEY
-# ENV GEMINI_API_KEY=$GEMINI_API_KEY
-
+# Build da aplicação frontend + compilação do server.ts
 RUN npm run build
 
 # Estágio de produção
-FROM nginx:stable-alpine
+FROM node:20-slim
 
-# Copiar build do estágio anterior
-COPY --from=builder /app/dist /usr/share/nginx/html
+WORKDIR /app
 
-# Configuração customizada do Nginx para suportar roteamento SPA (se necessário)
-RUN echo 'server { \
-    listen 80; \
-    location / { \
-        root /usr/share/nginx/html; \
-        index index.html index.htm; \
-        try_files $uri $uri/ /index.html; \
-    } \
-}' > /etc/nginx/conf.d/default.conf
+# Copiar apenas o necessário
+COPY --from=builder /app/package*.json ./
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/dist ./dist
 
-EXPOSE 80
+# Variáveis de ambiente padrão
+ENV NODE_ENV=production
+ENV OLLAMA_URL=http://ollama:11434
+ENV OLLAMA_MODEL=llama3.2:3b
 
-CMD ["nginx", "-g", "daemon off;"]
+EXPOSE 3000
+
+CMD ["npm", "run", "start"]

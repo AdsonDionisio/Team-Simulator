@@ -14,7 +14,6 @@ import {
   Trophy
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { GoogleGenAI, Type } from "@google/genai";
 
 // --- Types ---
 
@@ -55,8 +54,6 @@ const TEAM_MEMBERS = ['Alice (Frontend)', 'Bob (Backend)', 'Charlie (QA)', 'Dian
 
 // --- AI Service ---
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-
 export default function App() {
   const [state, setState] = useState<SimulationState>({
     tasks: [],
@@ -69,9 +66,28 @@ export default function App() {
   });
 
   const [themeInput, setThemeInput] = useState('Uma plataforma de comércio eletrônico para produtos sustentáveis');
+  const [selectedModel, setSelectedModel] = useState('llama3.2:3b');
   const [isLoading, setIsLoading] = useState(false);
 
   // --- Helpers ---
+
+  const callAI = async (prompt: string, system: string = "") => {
+    try {
+      const response = await fetch("/api/ai/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt, system, model: selectedModel })
+      });
+      
+      if (!response.ok) throw new Error("AI Proxy Error");
+      const data = await response.json();
+      const cleanString = data.response.replace(/```json/g, '').replace(/```/g, '').trim();
+      return JSON.parse(cleanString);
+    } catch (err) {
+      console.error("AI call failed:", err);
+      throw err;
+    }
+  };
 
   const addHistory = (msg: string) => {
     setState(prev => ({ ...prev, history: [msg, ...prev.history].slice(0, 50) }));
@@ -83,36 +99,14 @@ export default function App() {
     setState(prev => ({ ...prev, phase: 'backlog_generation', projectTheme: themeInput }));
 
     try {
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: `Aja como um Product Owner experiente. Gere um backlog inicial de 8 tarefas para o seguinte projeto: "${themeInput}". 
-        Retorne um JSON com um array de objetos, onde cada objeto tem: title (em português), description (em português), complexity (1-5), priority (low, medium, high).`,
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              tasks: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    title: { type: Type.STRING },
-                    description: { type: Type.STRING },
-                    complexity: { type: Type.NUMBER },
-                    priority: { type: Type.STRING, enum: ['low', 'medium', 'high'] }
-                  },
-                  required: ['title', 'description', 'complexity', 'priority']
-                }
-              }
-            },
-            required: ['tasks']
-          }
-        }
-      });
-
-      const text = response.text || '{"tasks": []}';
-      const data = JSON.parse(text);
+      const system = `Você é um Product Owner experiente. Atue como um gerador de backlog.
+      Retorne um JSON com exatamente 8 tarefas para o projeto fornecido.
+      Formato JSON exigido: { "tasks": [{ "title", "description", "complexity" (1-5), "priority" ("low","medium","high") }] }
+      APENAS O JSON.`;
+      
+      const prompt = `Gere o backlog para o projeto: "${themeInput}"`;
+      const data = await callAI(prompt, system);
+      
       const newTasks: Task[] = data.tasks.map((t: any, i: number) => ({
         ...t,
         id: `task-${Date.now()}-${i}`,
@@ -158,63 +152,14 @@ export default function App() {
 
     try {
       const activeTasks = state.tasks.filter(t => t.status !== 'backlog' && t.status !== 'done');
-      const prompt = `Aja como o motor de simulação de uma equipe de desenvolvimento Ágil. 
-      Estamos no Dia ${state.currentDay} da Sprint ${state.currentSprint} do projeto "${state.projectTheme}".
-      
-      Aqui estão as tarefas atuais (formato JSON): ${JSON.stringify(activeTasks)}.
-      
-      Regras de Negócio:
-      1. Avance o progresso das tarefas de forma realista baseado na complexidade (1-5).
-      2. Mova tarefas entre os estados: todo -> in_progress -> review -> done.
-      3. Use 'in_progress' para tarefas que estão sendo ativamente trabalhadas hoje.
-      4. Ocasionalmente, crie um 'blocker' (impedimento) curto em português para uma das tarefas.
-      5. Gere um 'devComment' em português para cada tarefa atualizada que soe como um desenvolvedor real.
-      
-      Retorne um JSON com:
-      - updates: [{ id, progressDelta, newStatus, blocker (opcional, null se resolvido), devComment }]
-      - dialogues: Um array de objetos [{ member, speech }] onde cada membro da equipe ('Alice (Frontend)', 'Bob (Backend)', 'Charlie (QA)', 'Diana (DevOps)') diz algo curto e específico sobre seu trabalho hoje no estilo Stand-up (O que fiz, o que vou fazer, impedimentos).`;
+      const system = `Aja como o motor de simulação de uma equipe Ágil. Dia ${state.currentDay}, Sprint ${state.currentSprint}.
+      Gere progresso para as tarefas fornecidas. Use 'in_progress' para as que o time focar.
+      Retorne JSON: { "updates": [{ "id", "progressDelta", "newStatus", "blocker" (opcional), "devComment" }], "dialogues": [{ "member", "speech" }] }
+      Membros: Alice (Frontend), Bob (Backend), Charlie (QA), Diana (DevOps).
+      APENAS O JSON.`;
 
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: prompt,
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              updates: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    id: { type: Type.STRING },
-                    progressDelta: { type: Type.NUMBER },
-                    newStatus: { type: Type.STRING },
-                    blocker: { type: Type.STRING, nullable: true },
-                    devComment: { type: Type.STRING }
-                  },
-                  required: ['id', 'progressDelta', 'newStatus', 'devComment']
-                }
-              },
-              dialogues: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    member: { type: Type.STRING },
-                    speech: { type: Type.STRING }
-                  },
-                  required: ['member', 'speech']
-                }
-              }
-            },
-            required: ['updates', 'dialogues']
-          }
-        }
-      });
-
-      const text = response.text || '{"updates": [], "dialogues": []}';
-      const result = JSON.parse(text);
+      const prompt = `TAREFAS ATUAIS: ${JSON.stringify(activeTasks)}`;
+      const result = await callAI(prompt, system);
       
       setState(prev => {
         const nextTasks = [...prev.tasks];
@@ -370,6 +315,19 @@ export default function App() {
         </div>
 
         <div className="flex items-center gap-8">
+          <div className="flex items-center gap-2 bg-slate-50 px-3 py-1.5 rounded-md border border-slate-200">
+            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest whitespace-nowrap">Modelo:</span>
+            <select 
+              value={selectedModel}
+              onChange={(e) => setSelectedModel(e.target.value)}
+              className="bg-transparent text-xs font-semibold focus:outline-none text-slate-700 cursor-pointer"
+            >
+              <option value="llama3.2:3b">llama3.2:3b</option>
+              <option value="llama3.1:latest">llama3.1:latest</option>
+              <option value="gemma4:e4b">gemma4:e4b</option>
+            </select>
+          </div>
+
           {state.phase !== 'setup' && (
              <div className="flex items-center gap-8">
                <div className="text-center">

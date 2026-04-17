@@ -5,9 +5,14 @@ services:
       dockerfile: Dockerfile
     container_name: devsim-simulator
     ports:
-      - "8004:80"
+      - "8004:3000"
     restart: always
-    # As chaves de API em SPAs são normalmente "baked" no build, 
-    # mas mantemos aqui para referência se o app fosse fullstack.
     environment:
-      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - OLLAMA_URL=http://ollama:11434
+      - OLLAMA_MODEL=llama3.2:3b
+    networks:
+      - ollama
+
+networks:
+  ollama:
+    external: true
