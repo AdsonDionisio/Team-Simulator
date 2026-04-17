@@ -39,7 +39,7 @@ interface SimulationState {
   projectTheme: string;
   isSimulating: boolean;
   phase: 'setup' | 'backlog_generation' | 'sprint_planning' | 'working' | 'standup';
-  standupContext?: string;
+  standupDialogues?: { member: string; speech: string }[];
   history: string[];
 }
 
@@ -172,7 +172,7 @@ export default function App() {
       
       Retorne um JSON com:
       - updates: [{ id, progressDelta, newStatus, blocker (opcional, null se resolvido), devComment }]
-      - standupSummary: Um texto curto em português (30-60 palavras) para a reunião diária, resumindo o que aconteceu hoje.`;
+      - dialogues: Um array de objetos [{ member, speech }] onde cada membro da equipe ('Alice (Frontend)', 'Bob (Backend)', 'Charlie (QA)', 'Diana (DevOps)') diz algo curto e específico sobre seu trabalho hoje no estilo Stand-up (O que fiz, o que vou fazer, impedimentos).`;
 
       const response = await ai.models.generateContent({
         model: "gemini-3-flash-preview",
@@ -196,14 +196,24 @@ export default function App() {
                   required: ['id', 'progressDelta', 'newStatus', 'devComment']
                 }
               },
-              standupSummary: { type: Type.STRING }
+              dialogues: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    member: { type: Type.STRING },
+                    speech: { type: Type.STRING }
+                  },
+                  required: ['member', 'speech']
+                }
+              }
             },
-            required: ['updates', 'standupSummary']
+            required: ['updates', 'dialogues']
           }
         }
       });
 
-      const text = response.text || '{"updates": [], "standupSummary": ""}';
+      const text = response.text || '{"updates": [], "dialogues": []}';
       const result = JSON.parse(text);
       
       setState(prev => {
@@ -230,7 +240,7 @@ export default function App() {
           ...prev,
           tasks: nextTasks,
           phase: 'standup',
-          standupContext: result.standupSummary,
+          standupDialogues: result.dialogues,
           isSimulating: false
         };
       });
@@ -533,17 +543,24 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="bg-slate-50 rounded-2xl p-8 mb-10 border border-slate-100 relative group overflow-hidden">
+                <div className="bg-slate-50 rounded-2xl p-6 mb-10 border border-slate-100 relative group overflow-hidden max-h-[400px] overflow-y-auto custom-scrollbar">
                   <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
                     <Terminal className="w-32 h-32" />
                   </div>
-                  <div className="relative z-10">
-                    <p className="text-xs font-bold text-blue-600 uppercase tracking-widest mb-4 flex items-center gap-2">
-                       <Users className="w-3 h-3" /> Resumo do Time:
-                    </p>
-                    <div className="text-slate-700 leading-relaxed font-medium">
-                      "{state.standupContext}"
-                    </div>
+                  <div className="relative z-10 space-y-6">
+                    {state.standupDialogues?.map((d, i) => (
+                      <div key={i} className="flex gap-4 items-start">
+                        <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center text-white shrink-0 font-bold shadow-sm">
+                          {d.member.charAt(0)}
+                        </div>
+                        <div className="flex-1">
+                          <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest mb-1">{d.member}</p>
+                          <div className="text-slate-700 text-sm leading-relaxed font-medium bg-white p-3 rounded-lg border border-slate-200 shadow-sm italic">
+                            "{d.speech}"
+                          </div>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
 
